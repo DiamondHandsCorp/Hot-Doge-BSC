@@ -1439,35 +1439,25 @@ contract HotDoge is ERC20, Ownable {
     uint256 private _initialTotalSupply = 10**15 * 10**18;
     uint8 private _decimals = 18;
 
-    uint256 private _maxTxAmount = 10**14 * 10**18;
-    uint256 private numTokensReflectReward = 10**6 * 10 ** 18;
+    uint256 private _maxTxAmount = 10**12 * 10**18;
+    uint256 private _reflectThresholdAmount = 10**6 * 10 ** 18;
 
-    uint256 private launchAt;
-    
     // Fees 15%
     uint256 private _totalFee = 150;                       // 15% Total Fee: Refection + DiamondHand + Vip + AstroBuyBack + Marketing + Volunteer + Liquidity
-    uint256 private _previousTotalFee = _totalFee;
 
     uint256 public _reflectionFee = 30;                    // 3% reflection fee to all holders
-    uint256 private _previousReflectionFee = _reflectionFee;    
 
     uint256 private _diamondFee = 15;                      // 1.5% Diamond Hand Corporate Development
-    uint256 private _previousDiamondFee = _diamondFee;
 
     uint256 private _vipFee = 15;                          // 1.5% VIP Programs
-    uint256 private _previousVipFee = _vipFee;
 
     uint256 private _buyBackFee = 30;                      // 3% Astro Buyback
-    uint256 private _previousBuyBackFee = _buyBackFee;
 
     uint256 private _marketingFee = 20;                    // 2% Marketing 
-    uint256 private _previousMarketingFee = _marketingFee;
 
     uint256 private _volunteerFee = 15;                    // 1.5% Volunteer and Treats Bot
-    uint256 private _previousVolunteerFee = _volunteerFee;
 
     uint256 private _liquidityFee = 25;                    // 2.5% Liquidity
-    uint256 private _previousLiquidityFee = _liquidityFee;
 
     //Addresses
     address private _volunteerAddress = 0x4F9e768639d85EB2e569EDcb3a6e5f392D284524;
@@ -1478,10 +1468,8 @@ contract HotDoge is ERC20, Ownable {
     address private _buyBackAddress = 0x41F71eFb2a6c7ce78b8bf27BfcBe7fB4595F797C;
 
     // Mappings
-    mapping (address => bool) private _isExcluded;  // Excluded from reflected reward
     mapping (address => bool) private _isExcludedFromFee;
 
-    mapping(address => bool) private _isTeamAddress; // team wallet check list
     mapping(address => bool) private bots; // bots blacklist
     mapping(address => uint256) private buycooldown; // buy cooldown time - 30 minutes
     mapping(address => uint256) private sellcooldown;  // sell cooldown time - 1 hour, 2 hours, 4 hours
@@ -1502,7 +1490,7 @@ contract HotDoge is ERC20, Ownable {
     bool inSwapping;
     bool private swapAndLiquifyEnabled = true;
     bool private tradeEnabled = true;
-    bool private cooldownEnabled = false;
+    bool private cooldownEnabled = true;
 
     event SendDividends(
         uint256 tokensSwapped,
@@ -1540,19 +1528,10 @@ contract HotDoge is ERC20, Ownable {
     }
     
     constructor () ERC20("HotDoge V3", "HOTDOGE") {
-        launchAt = block.timestamp;
-
-        _isTeamAddress[_volunteerAddress] = true;
-        _isTeamAddress[_diamondHandAddress] = true;
-        _isTeamAddress[_vipAddress] = true;
-        _isTeamAddress[_marketingAddress] = true;
-        _isTeamAddress[_liquidityAddress] = true;
-        _isTeamAddress[_buyBackAddress] = true;
-
         dividendTracker = new HotDogeDividendTracker();
 
-        // IPancakeswapV2Router02 _pancakeswapV2Router = IPancakeswapV2Router02(0x10ED43C718714eb63d5aA57B78B54704E256024E); // mainnet router
-        IPancakeswapV2Router02 _pancakeswapV2Router = IPancakeswapV2Router02(0x9Ac64Cc6e4415144C455BD8E4837Fea55603e5c3); // testnet router
+        IPancakeswapV2Router02 _pancakeswapV2Router = IPancakeswapV2Router02(0x10ED43C718714eb63d5aA57B78B54704E256024E); // mainnet router
+        // IPancakeswapV2Router02 _pancakeswapV2Router = IPancakeswapV2Router02(0x9Ac64Cc6e4415144C455BD8E4837Fea55603e5c3); // testnet router
         // Create a pancakeswap pair for this new token
         pancakeswapV2Pair = IPancakeswapV2Factory(_pancakeswapV2Router.factory()).createPair(address(this), _pancakeswapV2Router.WETH());
 
@@ -1604,8 +1583,12 @@ contract HotDoge is ERC20, Ownable {
 
     function setMaxTxPercent(uint256 maxTxPercent) external onlyOwner() {
         _maxTxAmount = _initialTotalSupply.mul(maxTxPercent).div(
-            10**2
+            10**4
         );
+    }
+
+    function setReflectThresholdAmount(uint256 amount) external onlyOwner() {
+        _reflectThresholdAmount = amount;
     }
 
     function updateGasForProcessing(uint256 newValue) public onlyOwner {
@@ -1687,6 +1670,10 @@ contract HotDoge is ERC20, Ownable {
         tradeEnabled = _enabled;
     }
 
+    function setCooldownEnabled(bool _enabled) external onlyOwner {
+        cooldownEnabled = _enabled;
+    }
+
     function setAutomatedMarketMakerPair(address pair, bool value) external onlyOwner {
         require(pair != pancakeswapV2Pair, "HOTDOGE: The PancakeSwap pair cannot be removed from automatedMarketMakerPairs");
 
@@ -1700,6 +1687,16 @@ contract HotDoge is ERC20, Ownable {
         if(value) {
             dividendTracker.excludeFromDividends(pair);
         }
+    }
+
+    function excludeFromBlacklist(address account) external onlyOwner() {
+        require(bots[account], "Account is already excluded in blacklist");
+        bots[account] = false;
+    }
+
+    function includeInBlacklist(address account) external onlyOwner() {
+        require(!bots[account], "Account is already included in blacklist");
+        bots[account] = true;
     }
 
     // to recieve ETH from pancakeswapV2Router when swaping
@@ -1794,8 +1791,10 @@ contract HotDoge is ERC20, Ownable {
         require(to != address(0), "ERC20: transfer to the zero address");
         require(amount > 0, "Transfer amount must be greater than zero");
 
-        if(from != owner() && to != owner())
+        if(from != owner() && to != owner()) {
             require(amount <= _maxTxAmount, "Transfer amount exceeds the maxTxAmount.");
+            require(!bots[from] && !bots[to], "Blacklist transaction");
+        }
 
         // is the token balance of this contract address over the min number of
         // tokens that we need to initiate a swap + liquidity lock?
@@ -1803,18 +1802,13 @@ contract HotDoge is ERC20, Ownable {
         // also, don't swap & liquify if sender is pancakeswap pair.        
         uint256 contractTokenBalance = balanceOf(address(this));
         
-        bool overMinTokenBalance = contractTokenBalance >= numTokensReflectReward;
+        bool overMinTokenBalance = contractTokenBalance >= _reflectThresholdAmount;
         if (
             overMinTokenBalance &&
             !inSwapping &&
             from != pancakeswapV2Pair &&
             swapAndLiquifyEnabled
         ) {
-            // uint256 totalFees = _totalFee;
-            // //add liquidity
-            // uint256 liquidityBalance = contractTokenBalance.mul(_liquidityFee).div(totalFees);
-            // swapAndLiquify(liquidityBalance);
-
             swapAndSendDividends(contractTokenBalance);
         }
 
@@ -1829,10 +1823,10 @@ contract HotDoge is ERC20, Ownable {
         if(takeFee) {
             uint256 totalFees = _totalFee;
 
-            if (to == pancakeswapV2Pair) {
+            if (to == pancakeswapV2Pair && cooldownEnabled) {
                 require(sellcooldown[from] < block.timestamp, "Cooldown time is not yet.");
 
-                // if((firstsell[from] + 13 hours) < block.timestamp){
+                if((firstsell[from] + 13 hours) < block.timestamp) {
                     sellnumber[from] = 0;
                 }
 
@@ -1881,43 +1875,36 @@ contract HotDoge is ERC20, Ownable {
 
     function _takeDiamondHand(uint256 _amount) private {
         uint256 tDiamond = _amount.mul(_diamondFee).div(_totalFee);
-        // _internalTransfer(_diamondHandAddress, tDiamond);
         super._transfer(address(this), _diamondHandAddress, tDiamond);
-
         try dividendTracker.setBalance(payable(_diamondHandAddress), balanceOf(_diamondHandAddress)) {} catch {}
     }
 
     function _takeVip(uint256 _amount) private {
         uint256 tVip = _amount.mul(_vipFee).div(_totalFee);
-        // _internalTransfer(_vipAddress, tVip);         
         super._transfer(address(this), _vipAddress, tVip);
         try dividendTracker.setBalance(payable(_vipAddress), balanceOf(_vipAddress)) {} catch {}
     }
 
     function _takeBuyBack(uint256 _amount) private {       
         uint256 tBuyBack = _amount.mul(_buyBackFee).div(_totalFee);
-        // _internalTransfer(_buyBackAddress, tBuyBack);
         super._transfer(address(this), _buyBackAddress, tBuyBack);
         try dividendTracker.setBalance(payable(_buyBackAddress), balanceOf(_buyBackAddress)) {} catch {}
     }
 
     function _takeVolunteer(uint256 _amount) private {
         uint256 tVolunteer = _amount.mul(_volunteerFee).div(_totalFee);
-        // _internalTransfer(_volunteerAddress, tVolunteer);
         super._transfer(address(this), _volunteerAddress, tVolunteer);
         try dividendTracker.setBalance(payable(_volunteerAddress), balanceOf(_volunteerAddress)) {} catch {}
     }
 
     function _takeMarketing(uint256 _amount) private {
         uint256 tMarketing = _amount.mul(_marketingFee).div(_totalFee);
-        // _internalTransfer(_marketingAddress, tMarketing);
         super._transfer(address(this), _marketingAddress, tMarketing);
         try dividendTracker.setBalance(payable(_marketingAddress), balanceOf(_marketingAddress)) {} catch {}
     }
 
     function _takeLiquidity(uint256 _amount) private {
         uint256 tLiquidity = _amount.mul(_liquidityFee).div(_totalFee);
-        // _internalTransfer(_liquidityAddress, tLiquidity);
         super._transfer(address(this), _liquidityAddress, tLiquidity);
         try dividendTracker.setBalance(payable(_liquidityAddress), balanceOf(_liquidityAddress)) {} catch {}
     }
