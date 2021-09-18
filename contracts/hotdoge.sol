@@ -1489,7 +1489,7 @@ contract HotDoge is ERC20, Ownable {
 
     bool inSwapping;
     bool private swapAndLiquifyEnabled = true;
-    bool private tradeEnabled = true;
+    bool private tradeEnabled = false;
     bool private cooldownEnabled = true;
 
     event SendDividends(
@@ -1581,13 +1581,13 @@ contract HotDoge is ERC20, Ownable {
         _isExcludedFromFee[account] = false;
     }    
 
-    function setMaxTxPercent(uint256 maxTxPercent) external onlyOwner() {
+    function setMaxTxPercent(uint256 maxTxPercent) external onlyOwner {
         _maxTxAmount = _initialTotalSupply.mul(maxTxPercent).div(
             10**4
         );
     }
 
-    function setReflectThresholdAmount(uint256 amount) external onlyOwner() {
+    function setReflectThresholdAmount(uint256 amount) external onlyOwner {
         _reflectThresholdAmount = amount;
     }
 
@@ -1796,6 +1796,10 @@ contract HotDoge is ERC20, Ownable {
             require(!bots[from] && !bots[to], "Blacklist transaction");
         }
 
+        if (automatedMarketMakerPairs[from] || automatedMarketMakerPairs[to]) {
+            require(tradeEnabled, "Trade is not enabled yet");
+        }
+
         // is the token balance of this contract address over the min number of
         // tokens that we need to initiate a swap + liquidity lock?
         // also, don't get caught in a circular liquidity event.
@@ -1823,7 +1827,7 @@ contract HotDoge is ERC20, Ownable {
         if(takeFee) {
             uint256 totalFees = _totalFee;
 
-            if (to == pancakeswapV2Pair && cooldownEnabled) {
+            if (automatedMarketMakerPairs[to] && cooldownEnabled) {
                 require(sellcooldown[from] < block.timestamp, "Cooldown time is not yet.");
 
                 if((firstsell[from] + 13 hours) < block.timestamp) {
